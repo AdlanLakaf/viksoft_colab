@@ -90,7 +90,7 @@ This will create:
 Create a `.env.local` file in the project root:
 
 ```bash
-cp .env.local.example .env.local
+cp  .env.local
 ```
 
 Edit `.env.local` and add your Supabase credentials:
