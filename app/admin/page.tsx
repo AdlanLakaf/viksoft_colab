@@ -399,7 +399,7 @@ export default function AdminDashboard() {
 }
 
 function StatCard({ title, value, icon: Icon, color }: any) {
-  const colors = {
+  const colors: Record<string, string> = {
     blue: 'text-blue-500 bg-blue-500/10 border-blue-500/30',
     yellow: 'text-yellow-500 bg-yellow-500/10 border-yellow-500/30',
     green: 'text-green-500 bg-green-500/10 border-green-500/30',
