@@ -89,7 +89,6 @@ export default function WorkspacePage() {
         if (data) {
             setRows(data)
             // Fetch active users
-            // @ts-ignore
             const userIds = [...new Set(data.filter(r => r.locked_by).map(r => r.locked_by!))]
             if (userIds.length > 0) {
                 const { data: users } = await supabase
