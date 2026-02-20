@@ -448,15 +448,7 @@ export default function WorkspacePage() {
                         <option value="blocked">Blocked</option>
                     </select>
 
-                    {columnOrder.length > 0 && (
-                        <button
-                            onClick={() => setColumnOrder(columnHeaders)}
-                            className="btn btn-ghost text-sm whitespace-nowrap"
-                            title="Reset column order"
-                        >
-                            Reset Columns
-                        </button>
-                    )}
+
 
                     {files.length > 1 && (
                         <select
@@ -473,6 +465,15 @@ export default function WorkspacePage() {
                                 </option>
                             ))}
                         </select>
+                    )}
+                    {columnOrder.length > 0 && (
+                        <button
+                            onClick={() => setColumnOrder(columnHeaders)}
+                            className="btn btn-ghost text-sm whitespace-nowrap"
+                            title="Reset column order"
+                        >
+                            Reset Columns
+                        </button>
                     )}
                 </div>
             </div>
