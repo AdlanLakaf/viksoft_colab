@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
     ArrowLeft, Filter, Search, Save, Lock, Unlock,
     CheckCircle, Clock, AlertCircle, Edit3, MessageSquare,
-    Users, RefreshCw, Download
+    Users, RefreshCw, Download, ChevronLeft, ChevronRight
 } from 'lucide-react'
 
 export default function WorkspacePage() {
@@ -22,6 +22,7 @@ export default function WorkspacePage() {
     const [searchQuery, setSearchQuery] = useState('')
     const [editingCell, setEditingCell] = useState<{rowId: string, field: string} | null>(null)
     const [loading, setLoading] = useState(true)
+    const [columnOrder, setColumnOrder] = useState<string[]>([])
     const realtimeChannel = useRef<any>(null)
 
     useEffect(() => {
@@ -37,6 +38,8 @@ export default function WorkspacePage() {
         if (selectedFile) {
             fetchRows()
             setupRealtime()
+            // Reset column order when switching files
+            setColumnOrder([])
         }
     }, [selectedFile])
 
@@ -80,13 +83,21 @@ export default function WorkspacePage() {
     const fetchRows = async () => {
         if (!selectedFile) return
 
-        const { data } = await supabase
+        // Fetch ALL rows (no limit) - we handle pagination on frontend
+        const { data, error } = await supabase
             .from('csv_rows')
             .select('*')
             .eq('file_id', selectedFile.id)
             .order('row_index', { ascending: true })
+            .limit(100000) // Set high limit to ensure we get everything
+
+        if (error) {
+            console.error('Error fetching rows:', error)
+            return
+        }
 
         if (data) {
+            console.log(`📊 Loaded ${data.length} total rows from database`)
             setRows(data)
             // Fetch active users
             const userIds = [...new Set(data.filter(r => r.locked_by).map(r => r.locked_by!))]
@@ -178,7 +189,9 @@ export default function WorkspacePage() {
     }
 
     const handleUnlockRow = async (row: CSVRow) => {
-        if (!profile || row.locked_by !== profile.id) return
+        // Allow admin to unlock any row, or user to unlock their own row
+        if (!profile) return
+        if (profile.role !== 'admin' && row.locked_by !== profile.id) return
 
         try {
             await supabase
@@ -285,6 +298,51 @@ export default function WorkspacePage() {
         return matchesStatus && matchesSearch
     })
 
+    // Render only first 1000 rows for performance, but keep all data for filtering
+    const displayRows = filteredRows.slice(0, 1000)
+    const hasMoreRows = filteredRows.length > 1000
+
+    // Debug logging
+    if (searchQuery && filteredRows.length > 0) {
+        console.log(`🔍 Search "${searchQuery}": Found ${filteredRows.length} matches, displaying ${displayRows.length}`)
+    }
+
+    const columnHeaders = rows.length > 0 ? Object.keys(rows[0].data) : []
+
+    // Debug logging for column issues
+    useEffect(() => {
+        if (rows.length > 0 && columnHeaders.length > 0) {
+            console.log('📋 Column Debug:')
+            console.log('   Column headers:', columnHeaders)
+            console.log('   Column order:', columnOrder)
+            console.log('   First row data keys:', Object.keys(rows[0].data))
+            console.log('   Sample data:', rows[0].data)
+        }
+    }, [rows.length, columnHeaders.length])
+
+    // Initialize column order when data loads
+    useEffect(() => {
+        if (columnHeaders.length > 0 && columnOrder.length === 0) {
+            setColumnOrder(columnHeaders)
+        }
+        // Reset if column count changes (different file structure)
+        if (columnOrder.length > 0 && columnOrder.length !== columnHeaders.length) {
+            setColumnOrder(columnHeaders)
+        }
+    }, [columnHeaders.length]) // Only depend on length to avoid infinite loops
+
+    // Use column order for display
+    const orderedHeaders = columnOrder.length > 0 ? columnOrder : columnHeaders
+
+    const moveColumn = (fromIndex: number, toIndex: number) => {
+        if (toIndex < 0 || toIndex >= orderedHeaders.length) return
+
+        const newOrder = [...orderedHeaders]
+        const [moved] = newOrder.splice(fromIndex, 1)
+        newOrder.splice(toIndex, 0, moved)
+        setColumnOrder(newOrder)
+    }
+
     if (loading) {
         return (
             <div className="min-h-screen flex items-center justify-center">
@@ -309,8 +367,6 @@ export default function WorkspacePage() {
         )
     }
 
-    const columnHeaders = rows.length > 0 ? Object.keys(rows[0].data) : []
-
     return (
         <div className="min-h-screen p-6">
             {/* Header */}
@@ -324,6 +380,11 @@ export default function WorkspacePage() {
                             <h1 className="text-2xl font-bold">{selectedFile.name}</h1>
                             <p className="text-slate-400">
                                 {selectedFile.completed_rows}/{selectedFile.total_rows} rows completed
+                                {filteredRows.length < rows.length && (
+                                    <span className="ml-2 text-blue-400">
+                    · Showing {filteredRows.length} filtered
+                  </span>
+                                )}
                             </p>
                         </div>
                     </div>
@@ -387,6 +448,16 @@ export default function WorkspacePage() {
                         <option value="blocked">Blocked</option>
                     </select>
 
+                    {columnOrder.length > 0 && (
+                        <button
+                            onClick={() => setColumnOrder(columnHeaders)}
+                            className="btn btn-ghost text-sm whitespace-nowrap"
+                            title="Reset column order"
+                        >
+                            Reset Columns
+                        </button>
+                    )}
+
                     {files.length > 1 && (
                         <select
                             value={selectedFile.id}
@@ -418,23 +489,46 @@ export default function WorkspacePage() {
                             <th className="sticky left-[60px] bg-slate-700 z-20" style={{ width: '150px' }}>
                                 Status
                             </th>
-                            <th className="sticky left-[210px] bg-slate-700 z-20" style={{ width: '120px' }}>
+                            <th className="sticky left-[210px] bg-slate-700 z-20" style={{ width: '100px' }}>
+                                Lock
+                            </th>
+                            <th className="sticky left-[310px] bg-slate-700 z-20" style={{ width: '120px' }}>
                                 Assigned
                             </th>
-                            {columnHeaders.map(header => (
+                            {orderedHeaders.map((header, index) => (
                                 <th key={header} style={{ minWidth: '200px' }}>
-                                    {header}
+                                    <div className="flex items-center justify-between gap-2">
+                                        <button
+                                            onClick={() => moveColumn(index, index - 1)}
+                                            disabled={index === 0}
+                                            className="text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed p-1"
+                                            title="Move left"
+                                        >
+                                            <ChevronLeft className="w-3 h-3" />
+                                        </button>
+                                        <span className="flex-1 text-center">{header}</span>
+                                        <button
+                                            onClick={() => moveColumn(index, index + 1)}
+                                            disabled={index === orderedHeaders.length - 1}
+                                            className="text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed p-1"
+                                            title="Move right"
+                                        >
+                                            <ChevronRight className="w-3 h-3" />
+                                        </button>
+                                    </div>
                                 </th>
                             ))}
-                            <th style={{ width: '150px' }}>Actions</th>
+                            <th style={{ width: '100px' }}>Notes</th>
                         </tr>
                         </thead>
                         <tbody>
-                        {filteredRows.map((row) => {
+                        {displayRows.map((row) => {
                             const assignedUser = activeUsers.find(u => u.id === row.assigned_to)
                             const isLocked = !!row.locked_by
                             const isLockedByMe = row.locked_by === profile?.id
                             const canEdit = !isLocked || isLockedByMe
+                            // Allow admin to unlock any row
+                            const canUnlock = isLockedByMe || profile?.role === 'admin'
 
                             return (
                                 <motion.tr
@@ -463,6 +557,27 @@ export default function WorkspacePage() {
                                         </select>
                                     </td>
                                     <td className="sticky left-[210px] bg-slate-800">
+                                        {canUnlock && isLocked ? (
+                                            <button
+                                                onClick={() => handleUnlockRow(row)}
+                                                className="btn btn-ghost p-2"
+                                                title={isLockedByMe ? "Unlock" : "Admin: Force Unlock"}
+                                            >
+                                                <Unlock className="w-4 h-4" />
+                                            </button>
+                                        ) : !isLocked ? (
+                                            <button
+                                                onClick={() => handleLockRow(row)}
+                                                className="btn btn-primary p-2"
+                                                title="Start Working"
+                                            >
+                                                <Lock className="w-4 h-4" />
+                                            </button>
+                                        ) : (
+                                            <div className="text-xs text-slate-500">Locked</div>
+                                        )}
+                                    </td>
+                                    <td className="sticky left-[310px] bg-slate-800">
                                         {assignedUser && (
                                             <div className="flex items-center gap-2">
                                                 <div
@@ -477,12 +592,12 @@ export default function WorkspacePage() {
                                             </div>
                                         )}
                                     </td>
-                                    {columnHeaders.map(header => (
+                                    {orderedHeaders.map(header => (
                                         <td key={header}>
                                             {editingCell?.rowId === row.id && editingCell?.field === header ? (
                                                 <input
                                                     type="text"
-                                                    defaultValue={row.data[header]}
+                                                    defaultValue={row.data[header] || ''}
                                                     onBlur={(e) => handleUpdateCell(row.id, header, e.target.value)}
                                                     onKeyDown={(e) => {
                                                         if (e.key === 'Enter') {
@@ -504,43 +619,23 @@ export default function WorkspacePage() {
                                                         }
                                                     }}
                                                     className={`truncate p-1 rounded ${canEdit ? 'cursor-context-menu hover:bg-slate-700/30' : ''}`}
-                                                    title={canEdit ? 'Right-click to edit' : row.data[header]}
+                                                    title={canEdit ? 'Right-click to edit' : (row.data[header] || '-')}
                                                 >
-                                                    {row.data[header] || '-'}
+                                                    {row.data[header] !== undefined ? row.data[header] : '-'}
                                                 </div>
                                             )}
                                         </td>
                                     ))}
                                     <td>
-                                        <div className="flex items-center gap-2">
-                                            {isLockedByMe ? (
-                                                <button
-                                                    onClick={() => handleUnlockRow(row)}
-                                                    className="btn btn-ghost p-2"
-                                                    title="Unlock"
-                                                >
-                                                    <Unlock className="w-4 h-4" />
-                                                </button>
-                                            ) : !isLocked ? (
-                                                <button
-                                                    onClick={() => handleLockRow(row)}
-                                                    className="btn btn-primary p-2"
-                                                    title="Start Working"
-                                                >
-                                                    <Lock className="w-4 h-4" />
-                                                </button>
-                                            ) : null}
-
-                                            {(canEdit || row.notes) && (
-                                                <button
-                                                    onClick={() => handleAddNote(row)}
-                                                    className="btn btn-ghost p-2"
-                                                    title={row.notes || 'Add Note'}
-                                                >
-                                                    <MessageSquare className={`w-4 h-4 ${row.notes ? 'text-blue-400' : ''}`} />
-                                                </button>
-                                            )}
-                                        </div>
+                                        {(canEdit || row.notes) && (
+                                            <button
+                                                onClick={() => handleAddNote(row)}
+                                                className="btn btn-ghost p-2"
+                                                title={row.notes || 'Add Note'}
+                                            >
+                                                <MessageSquare className={`w-4 h-4 ${row.notes ? 'text-blue-400' : ''}`} />
+                                            </button>
+                                        )}
                                     </td>
                                 </motion.tr>
                             )
@@ -548,6 +643,15 @@ export default function WorkspacePage() {
                         </tbody>
                     </table>
                 </div>
+
+                {/* Pagination Info */}
+                {hasMoreRows && (
+                    <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                        <p className="text-sm text-blue-300">
+                            📊 Showing {displayRows.length} of {filteredRows.length} rows (max 1000 displayed for performance). Use filters to narrow down results.
+                        </p>
+                    </div>
+                )}
 
                 {/* Legend */}
                 <div className="mt-6 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
@@ -573,6 +677,14 @@ export default function WorkspacePage() {
                     <p className="mt-3 text-xs text-slate-400">
                         💡 Tip: Click <Lock className="w-3 h-3 inline" /> to start working on a row. The row will be locked with your color. <strong>Right-click cells to edit</strong> when locked.
                     </p>
+                    <p className="mt-2 text-xs text-slate-400">
+                        🔄 <strong>Reorder columns:</strong> Use <ChevronLeft className="w-3 h-3 inline" /> <ChevronRight className="w-3 h-3 inline" /> arrows in column headers to move columns left/right.
+                    </p>
+                    {profile?.role === 'admin' && (
+                        <p className="mt-2 text-xs text-purple-400">
+                            👑 Admin: You can unlock any row, even if locked by other users.
+                        </p>
+                    )}
                 </div>
             </div>
         </div>
